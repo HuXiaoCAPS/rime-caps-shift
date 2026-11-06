@@ -233,6 +233,7 @@ Shift/CapsLock 事件只把待处理状态标记为 dirty，由 `flush_pending_u
 - 使用当前启动参数（会过滤 `--debug`、`--log-file`、`--quit`、`--diagnose`）
 - 普通用户权限，不需要管理员，不需要计划任务
 - 再次点击可删除该 Run 值
+- 如果移动了 EXE/脚本或修改了启动参数，请重新点击两次开关以刷新 Run 值
 - 如果当前以 `--no-tray` 运行，没有托盘菜单；可以先运行
   `rime_caps_shift.py --show-tray` 让运行中的实例恢复托盘，再操作开关
 
@@ -297,6 +298,13 @@ python rime_caps_shift.py --quit
 `RimeCapsShift-windows-x64`，解压即可得到 EXE 和校验文件。Artifact 默认保留
 30 天。
 
+校验下载的 EXE：
+
+```powershell
+Get-FileHash .\RimeCapsShift.exe -Algorithm SHA256
+# 与 RimeCapsShift.exe.sha256 中的值比较
+```
+
 推送 `v*` tag 时，workflow 还会自动创建对应的 **GitHub Release**，附带
 `RimeCapsShift.exe` 和 `RimeCapsShift.exe.sha256`：
 
@@ -306,7 +314,7 @@ git push origin v1.3.0
 ```
 
 Release 页面：
-<https://github.com/HuXiaoCAPS/rime-caps-shift/releases>
+<https://github.com/HuXiaoCAPS/rime-caps-shift/releases/tag/v1.3.0>
 
 Nuitka-Action 本身不是编译器，它会在 GitHub 的 Windows runner 上安装指定
 版本的 Nuitka 并调用 MSVC 构建。`assume-yes-for-downloads: true` 允许 Nuitka
