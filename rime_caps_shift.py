@@ -43,6 +43,7 @@ import logging
 import math
 import os
 import re
+import subprocess
 import sys
 import time
 import uuid
@@ -57,7 +58,12 @@ WINDOW_CLASS = "RimeCapsShift.HiddenWindow"
 MUTEX_NAME = r"Local\RimeCapsShift.SingleInstance"
 TRAY_UID = 1
 WM_APP_TRAY = 0x8000 + 1
+WM_APP_SHOW_TRAY = 0x8000 + 2
 ID_TRAY_EXIT = 1001
+ID_TRAY_AUTOSTART = 1002
+ID_TRAY_HIDE = 1003
+AUTOSTART_KEY = r"Software\Microsoft\Windows\CurrentVersion\Run"
+AUTOSTART_VALUE = "RimeCapsShift"
 POLL_INTERVAL_MS = 250
 HALO_INTERVAL_MS = 50
 TIMER_ID_POLL = 1
@@ -135,6 +141,7 @@ NIF_ICON = 0x00000002
 NIF_TIP = 0x00000004
 MF_STRING = 0x00000000
 MF_GRAYED = 0x00000001
+MF_CHECKED = 0x00000008
 MF_SEPARATOR = 0x00000800
 TPM_RIGHTBUTTON = 0x0002
 TPM_NONOTIFY = 0x0080
@@ -1773,6 +1780,96 @@ class KeyboardHandler:
 
 
 # ---------------------------------------------------------------------------
+# 开机自启动（仅 HKCU，普通用户权限）
+# ---------------------------------------------------------------------------
+
+def _is_compiled_binary() -> bool:
+    return bool(
+        getattr(sys, "frozen", False)
+        or "__compiled__" in globals()
+        or not os.path.basename(sys.executable).lower().startswith("python")
+    )
+
+
+def _autostart_args() -> list[str]:
+    """复用当前参数，但去掉一次性/调试参数。"""
+    result = []
+    skip_next = False
+    for arg in sys.argv[1:]:
+        if skip_next:
+            skip_next = False
+            continue
+        if arg in ("--debug", "--diagnose", "--quit", "--show-tray"):
+            continue
+        if arg == "--log-file":
+            skip_next = True
+            continue
+        if arg.startswith("--log-file="):
+            continue
+        result.append(arg)
+    return result
+
+
+def _autostart_command() -> str:
+    if _is_compiled_binary():
+        executable = os.path.abspath(sys.argv[0]) if sys.argv else ""
+        if not executable or not os.path.isfile(executable):
+            executable = sys.executable
+        parts = [executable]
+    else:
+        script = os.path.abspath(__file__)
+        executable = sys.executable
+        pythonw = os.path.join(os.path.dirname(executable), "pythonw.exe")
+        if os.path.isfile(pythonw):
+            executable = pythonw
+        parts = [executable, script]
+    return subprocess.list2cmdline(parts + _autostart_args())
+
+
+def read_autostart_command() -> str:
+    try:
+        with winreg.OpenKey(
+            winreg.HKEY_CURRENT_USER, AUTOSTART_KEY, 0, winreg.KEY_READ
+        ) as key:
+            value, _ = winreg.QueryValueEx(key, AUTOSTART_VALUE)
+            return str(value)
+    except FileNotFoundError:
+        return ""
+    except OSError:
+        return ""
+
+
+def is_autostart_enabled() -> bool:
+    return bool(read_autostart_command())
+
+
+def set_autostart_enabled(enabled: bool) -> bool:
+    try:
+        if enabled:
+            command = _autostart_command()
+            if not command:
+                return False
+            with winreg.CreateKeyEx(
+                winreg.HKEY_CURRENT_USER, AUTOSTART_KEY, 0, winreg.KEY_SET_VALUE
+            ) as key:
+                winreg.SetValueEx(key, AUTOSTART_VALUE, 0, winreg.REG_SZ, command)
+            log.info("已开启开机自启动：%s", command)
+        else:
+            try:
+                with winreg.OpenKey(
+                    winreg.HKEY_CURRENT_USER, AUTOSTART_KEY, 0, winreg.KEY_SET_VALUE
+                ) as key:
+                    winreg.DeleteValue(key, AUTOSTART_VALUE)
+            except FileNotFoundError:
+                pass
+            log.info("已关闭开机自启动")
+        return True
+    except OSError as exc:
+        log.warning("更新开机自启动设置失败：%s", exc)
+        return False
+
+
+# ---------------------------------------------------------------------------
 # 托盘图标与隐藏窗口
 # ---------------------------------------------------------------------------
 
@@ -2017,19 +2114,43 @@ class RimeCapsShiftApp:
     def _create_tray(self) -> None:
         if self.no_tray:
             self._tray_color_reason = "未启用（--no-tray）"
-            log.info("已通过 --no-tray 禁用托盘图标")
+            log.info("已通过 --no-tray 隐藏托盘图标")
             return
-        self._icon_default, self._icon_active, self._tray_color_reason = \
-            create_tray_icons()
-        self._custom_icons = self._icon_default is not self._icon_active
-        self._tray_color_available = self._custom_icons
-        self.tray = TrayIcon(
-            self.hwnd, self._icon_default, self._icon_active,
-            color_available=self._tray_color_available,
-        )
+        self._ensure_tray()
+
+    def _ensure_tray(self) -> bool:
+        """创建或重新添加托盘图标；也用于 --show-tray 恢复。"""
+        if self.hwnd is None:
+            return False
+        if self.tray is None:
+            self._icon_default, self._icon_active, self._tray_color_reason = \
+                create_tray_icons()
+            self._custom_icons = self._icon_default is not self._icon_active
+            self._tray_color_available = self._custom_icons
+            self.tray = TrayIcon(
+                self.hwnd, self._icon_default, self._icon_active,
+                color_available=self._tray_color_available,
+            )
+        if not self.tray.added:
+            if not self.tray.add(self._tray_tip(), active=self.visual.latched):
+                log.warning("添加托盘图标失败，可运行 --show-tray 重试")
+                return False
         self.visual.tray = self.tray
-        self.tray.add(self._tray_tip(), active=self.visual.latched)
+        self.no_tray = False
         log.info("托盘变色：%s", self._tray_color_reason)
+        return True
+
+    def _hide_tray(self) -> None:
+        if self.tray is None or not self.tray.added:
+            return
+        self.tray.remove()
+        # 保留 TrayIcon/HICON，方便 --show-tray 重新添加；停止视觉更新。
+        self.visual.tray = None
+        log.info("托盘图标已隐藏；可运行 `--show-tray` 恢复")
+
+    def _show_tray(self) -> None:
+        if self._ensure_tray():
+            log.info("托盘图标已恢复")
 
     def _tray_tip(self) -> str:
         return "RimeCapsShift：" + self.handler.status_short()
@@ -2073,6 +2194,9 @@ class RimeCapsShiftApp:
                         self.halo.tick()
                     self.handler.flush_pending_ui()
                 return 0
+            if msg == WM_APP_SHOW_TRAY:
+                self._show_tray()
+                return 0
             if msg == WM_APP_TRAY:
                 event = int(lparam) & 0xFFFF
                 if event in (WM_RBUTTONUP, WM_CONTEXTMENU):
@@ -2102,6 +2226,15 @@ class RimeCapsShiftApp:
             user32.AppendMenuW(
                 menu, MF_STRING | MF_GRAYED, 0, self.handler.status_menu()
             )
+            autostart_flags = MF_STRING
+            if is_autostart_enabled():
+                autostart_flags |= MF_CHECKED
+            user32.AppendMenuW(
+                menu, autostart_flags, ID_TRAY_AUTOSTART, "开机自启动"
+            )
+            user32.AppendMenuW(
+                menu, MF_STRING, ID_TRAY_HIDE, "隐藏托盘图标"
+            )
             user32.AppendMenuW(menu, MF_SEPARATOR, 0, None)
             user32.AppendMenuW(menu, MF_STRING, ID_TRAY_EXIT, "退出 RimeCapsShift")
             pt = wintypes.POINT()
@@ -2113,11 +2246,28 @@ class RimeCapsShiftApp:
                 pt.x, pt.y, 0, self.hwnd, None,
             )
             user32.PostMessageW(self.hwnd, WM_NULL, 0, 0)
-            if command == ID_TRAY_EXIT:
+            if command == ID_TRAY_AUTOSTART:
+                self._toggle_autostart()
+            elif command == ID_TRAY_HIDE:
+                self._hide_tray()
+            elif command == ID_TRAY_EXIT:
                 self._request_quit()
         finally:
             user32.DestroyMenu(menu)
             self._menu_open = False
+
+    def _toggle_autostart(self) -> None:
+        enable = not is_autostart_enabled()
+        if not set_autostart_enabled(enable):
+            user32.MessageBoxW(
+                self.hwnd,
+                "无法更新开机自启动设置。\n"
+                "请检查当前用户是否有写入 HKCU\\...\\Run 的权限。",
+                APP_NAME,
+                0x00000010,  # MB_ICONERROR
+            )
+            return
+        log.info("开机自启动已%s", "开启" if enable else "关闭")
 
     def _console_ctrl(self, event) -> bool:
         if event in (CTRL_C_EVENT, CTRL_BREAK_EVENT, CTRL_CLOSE_EVENT,
@@ -2293,6 +2443,18 @@ def _quit_running_instance() -> int:
     return 0
 
 
+def _show_tray_running_instance() -> int:
+    hwnd = user32.FindWindowW(WINDOW_CLASS, None)
+    if not hwnd:
+        _print("RimeCapsShift 当前未运行。")
+        return 0
+    if not user32.PostMessageW(hwnd, WM_APP_SHOW_TRAY, 0, 0):
+        _print("发送显示托盘请求失败，WinError=%s" % ctypes.get_last_error())
+        return 1
+    _print("已请求显示 RimeCapsShift 托盘图标。")
+    return 0
+
+
 def _run_diagnose(use_tsf: bool, no_tray: bool = False,
                   no_halo: bool = False, halo_color: str = HALO_DEFAULT_COLOR,
                   halo_size: int = HALO_DEFAULT_SIZE, beep: bool = False,
@@ -2357,6 +2519,7 @@ def _run_diagnose(use_tsf: bool, no_tray: bool = False,
             tips.append(f"光效              : {halo.reason}")
         tips.append(f"光效颜色          : #{color[0]:02X}{color[1]:02X}{color[2]:02X}")
         tips.append(f"光效大小          : {size} px")
+        tips.append(f"开机自启动        : {'开' if is_autostart_enabled() else '关'}（HKCU Run）")
         tips.append(f"提示音            : {'开' if beep else '关'}（--beep）")
         tips.append("识别关键字        : " + ", ".join(WEASEL_KEYWORDS))
         _print("\n".join(tips))
@@ -2402,6 +2565,8 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         help="只读检查当前前台输入法识别结果后退出")
     parser.add_argument("--quit", action="store_true",
                         help="请求已运行的实例退出")
+    parser.add_argument("--show-tray", action="store_true",
+                        help="请求已运行的实例恢复托盘图标（隐藏后使用）")
     parser.add_argument("--no-halo", action="store_true",
                         help="禁用鼠标周围的呼吸光晕，仅保留托盘变色")
     parser.add_argument("--halo-color", metavar="RRGGBB",
@@ -2420,8 +2585,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
                         help="Shift 短按判定阈值，默认 500ms")
     parser.add_argument("--no-tsf", action="store_true",
                         help="禁用 TSF 补充检测，仅用 HKL 描述匹配")
-    parser.add_argument("--no-tray", action="store_true",
-                        help="不创建托盘图标（调试/无 Explorer 环境）")
+    parser.add_argument("--no-tray", "--hide-tray", action="store_true",
+                        dest="no_tray",
+                        help="隐藏托盘图标（不创建托盘；用 --quit 退出）")
     parser.add_argument("--debug", action="store_true",
                         help="输出调试日志")
     parser.add_argument("--log-file", metavar="PATH",
@@ -2447,6 +2613,8 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     if args.quit:
         return _quit_running_instance()
+    if args.show_tray:
+        return _show_tray_running_instance()
 
     _setup_logging(args.debug, args.log_file)
 

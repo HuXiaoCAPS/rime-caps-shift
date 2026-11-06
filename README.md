@@ -17,6 +17,8 @@
   1. **托盘图标变色**：复用同一个托盘图标，默认米白 / 锁定琥珀色；
   2. **鼠标周围呼吸光晕**：半透明、点击穿透、不抢焦点，锁定解除即隐藏。
 - 可选 `--beep` 在锁定/解除时播放系统提示音。
+- 托盘右键菜单提供“开机自启动”开关（写入当前用户的 HKCU Run，不需要管理员）。
+- `--no-tray` / `--hide-tray` 可完全隐藏托盘图标；此时用 `--quit` 退出。
 - 不修改系统光标、不注入 CapsLock、不要求管理员权限、不需要驱动。
 
 项目只使用 Python 标准库和 `ctypes`，不需要 `pywin32`。
@@ -60,6 +62,12 @@ python rime_caps_shift.py --shift-key left
 
 # 左右 Shift 都监听，阈值改为 400ms
 python rime_caps_shift.py --shift-key both --shift-threshold 400
+
+# 完全隐藏托盘图标（依旧后台运行，用 --quit 退出）
+python rime_caps_shift.py --no-tray
+
+# 已隐藏托盘图标时，让运行中的实例重新显示托盘
+python rime_caps_shift.py --show-tray
 
 # 锁存/解除时播放系统提示音
 python rime_caps_shift.py --beep
@@ -207,7 +215,7 @@ Shift/CapsLock 事件只把待处理状态标记为 dirty，由 `flush_pending_u
 ```powershell
 --no-halo              # 完全关闭光晕
 --halo-color RRGGBB    # 六位十六进制，默认 FFB347（琥珀）
---halo-size PX         # 物理像素直径，默认 160，限制 32..512
+--halo-size PX         # 物理像素直径，默认 96，限制 32..512
 ```
 
 启动时优先启用 **Per-Monitor V2 DPI 感知**，失败时依次尝试 Per-Monitor V1
@@ -216,6 +224,53 @@ Shift/CapsLock 事件只把待处理状态标记为 dirty，由 `flush_pending_u
 ### 提示音
 
 `--beep` 打开后，锁定和解除时各调用一次 `MessageBeep(MB_OK)`；默认关闭。
+
+## 开机自启动
+
+托盘右键菜单中有“开机自启动”开关，勾选状态表示当前用户是否已设置。
+
+- 写入位置：`HKCU\Software\Microsoft\Windows\CurrentVersion\Run\RimeCapsShift`
+- 使用当前启动参数（会过滤 `--debug`、`--log-file`、`--quit`、`--diagnose`）
+- 普通用户权限，不需要管理员，不需要计划任务
+- 再次点击可删除该 Run 值
+- 如果当前以 `--no-tray` 运行，没有托盘菜单，需要手动运行一次带托盘的实例来
+  开启/关闭；或者直接管理该 HKCU Run 值
+
+> 这是本项目唯一的注册表写入行为，且只在用户主动点击托盘菜单“开机自启动”时
+> 发生。其他时候只读取注册表。
+
+## 隐藏托盘图标
+
+有两种方式：
+
+1. **启动时隐藏**：`--no-tray`（别名 `--hide-tray`）
+2. **运行时隐藏**：托盘右键菜单 → **隐藏托盘图标**
+
+隐藏后没有托盘菜单，可以恢复或退出：
+
+```powershell
+# 让运行中的实例重新创建托盘图标
+python rime_caps_shift.py --show-tray
+
+# 直接退出后台实例
+python rime_caps_shift.py --quit
+```
+
+如果希望开机自启动时也隐藏托盘，可以在
+`HKCU\Software\Microsoft\Windows\CurrentVersion\Run\RimeCapsShift` 的命令末尾
+加上 `--no-tray`；也可以先正常启动、从托盘开启自启动，然后编辑该 Run 值。
+
+## 代码结构：单文件是否需要拆分
+
+目前 `rime_caps_shift.py` 约 2500 行，仍然是一个自包含单文件；这是刻意保留的：
+
+- Nuitka 对单文件入口和多文件包都能正常打包，拆分不会让 EXE 更小或更快；
+- 单文件便于分发、审查和在线构建；
+- 当前功能边界清楚，暂时没有必要为了“看起来工程化”而拆分。
+
+如果后续继续增加配置持久化、托盘多语言、更多输入法后端等，再按
+`win32_api` / `weasel_detector` / `visuals` / `keyboard_handler` / `app`
+拆成包会更易维护；现阶段不建议拆。
 
 ## GitHub Actions 在线构建（推荐）
 
@@ -242,6 +297,17 @@ Shift/CapsLock 事件只把待处理状态标记为 dirty，由 `flush_pending_u
 `RimeCapsShift-windows-x64`，解压即可得到 EXE 和校验文件。Artifact 默认保留
 30 天。
 
+推送 `v*` tag 时，workflow 还会自动创建对应的 **GitHub Release**，附带
+`RimeCapsShift.exe` 和 `RimeCapsShift.exe.sha256`：
+
+```powershell
+git tag v1.3.0
+git push origin v1.3.0
+```
+
+Release 页面：
+<https://github.com/HuXiaoCAPS/rime-caps-shift/releases>
+
 Nuitka-Action 本身不是编译器，它会在 GitHub 的 Windows runner 上安装指定
 版本的 Nuitka 并调用 MSVC 构建。`assume-yes-for-downloads: true` 允许 Nuitka
 自动获取它需要的构建辅助工具；这与本项目运行时无额外依赖无关。
@@ -255,9 +321,8 @@ python -m nuitka --onefile --windows-console-mode=disable `
   rime_caps_shift.py
 ```
 
-> 当前 workflow 只上传 Actions Artifact，不做 GitHub Release。如果希望打 tag
-> 时自动发布 Release，可在 workflow 末尾增加一个 `gh release upload` 或
-> `softprops/action-gh-release` 步骤。
+> 当前 workflow 在 `v*` tag 上自动创建/更新 GitHub Release；普通 `main` push
+> 和 Pull Request 只上传 Actions Artifact。
 
 ## 使用 Nuitka 本地构建
 
@@ -348,9 +413,12 @@ python -m nuitka --onefile --windows-console-mode=disable `
     通常可以恢复。正常退出路径都会发送 Shift Up 并隐藏光效。
 12. **单实例**
     程序使用 `Local\RimeCapsShift.SingleInstance` 互斥量，同一会话只允许一个实例。
-13. **未修改系统**
-    不写注册表、不修改输入法配置、不注入其他进程、不安装驱动、不修改系统光标。
-    仅读取输入法注册信息、前台 HKL、TSF 活动配置和光标位置。
+13. **注册表与系统修改**
+    不写系统级注册表、不修改输入法配置、不注入其他进程、不安装驱动、不修改
+    系统光标。仅当用户主动点击托盘菜单“开机自启动”时，写入当前用户的
+    `HKCU\Software\Microsoft\Windows\CurrentVersion\Run\RimeCapsShift`；
+    再次点击会删除该值。其他时候只读取输入法注册信息、前台 HKL、TSF 活动配置
+    和光标位置。
 
 ## 为什么没有用 pywin32 或第三方 GUI 库
 
