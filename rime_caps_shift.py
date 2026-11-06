@@ -37,23 +37,19 @@ from __future__ import annotations
 
 import argparse
 import atexit
-import base64
 import ctypes
 import logging
 import math
 import os
 import re
-import subprocess
 import sys
 import time
 import uuid
 import winreg
-import zlib
 from ctypes import wintypes
-from typing import Optional
 
 APP_NAME = "RimeCapsShift"
-APP_VERSION = "1.3.0"
+APP_VERSION = "1.3.1"
 WINDOW_CLASS = "RimeCapsShift.HiddenWindow"
 MUTEX_NAME = r"Local\RimeCapsShift.SingleInstance"
 TRAY_UID = 1
@@ -1043,6 +1039,9 @@ TRAY_ICON_SIZE = 32
 
 
 def _decode_embedded_icon(data_b64: str) -> bytes:
+    import base64
+    import zlib
+
     raw = zlib.decompress(base64.b64decode(data_b64))
     expected = TRAY_ICON_SIZE * TRAY_ICON_SIZE * 4
     if len(raw) != expected:
@@ -1811,6 +1810,8 @@ def _autostart_args() -> list[str]:
 
 
 def _autostart_command() -> str:
+    import subprocess
+
     if _is_compiled_binary():
         executable = os.path.abspath(sys.argv[0]) if sys.argv else ""
         if not executable or not os.path.isfile(executable):

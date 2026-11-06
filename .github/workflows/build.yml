@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   build:
-    name: Nuitka onefile (Windows x64)
+    name: Nuitka standalone (Windows x64)
     runs-on: windows-latest
     timeout-minutes: 30
     steps:
@@ -35,31 +35,96 @@ jobs:
           # Pin both the action and compiler for reproducible builds.
           nuitka-version: "4.3.4"
           script-name: rime_caps_shift.py
-          mode: onefile
+          mode: standalone
+          python-flag: "no_site"
           windows-console-mode: disable
           output-dir: build
-          output-file: RimeCapsShift.exe
           windows-icon-from-ico: assets/rime_caps_shift.ico
           assume-yes-for-downloads: true
+          nofollow-import-to: |
+            tkinter
+            unittest
+            pydoc
+            doctest
+            test
+            tests
+            distutils
+            setuptools
+            pip
+            ensurepip
+            venv
+            lib2to3
+            idlelib
+            turtle
+            curses
+            sqlite3
+            multiprocessing
+            asyncio
+            concurrent
+            socket
+            ssl
+            http
+            urllib
+            email
+            xml
+            html
+            json
+            pickle
+            shelve
+            dbm
+            gzip
+            bz2
+            lzma
+            tarfile
+            zipfile
+            csv
+            configparser
+            ftplib
+            smtplib
+            imaplib
+            poplib
+            telnetlib
+            xmlrpc
+            wsgiref
+            pdb
+            profile
+            cProfile
+            pstats
+            timeit
+            trace
 
-      - name: Generate SHA-256 checksum
+      - name: Package standalone build
         shell: pwsh
         run: |
-          $exe = "build\RimeCapsShift.exe"
-          if (-not (Test-Path -LiteralPath $exe)) {
-            throw "Expected build output was not created: $exe"
+          $dist = Get-ChildItem -LiteralPath "build" -Directory -Filter "*.dist" |
+            Select-Object -First 1
+          if (-not $dist) {
+            throw "Nuitka standalone output directory was not created"
           }
-          $hash = (Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLower()
-          "$hash  RimeCapsShift.exe" |
-            Set-Content -LiteralPath "build\RimeCapsShift.exe.sha256" -Encoding ascii
+          $target = Join-Path "build" "RimeCapsShift.dist"
+          Rename-Item -LiteralPath $dist.FullName -NewName "RimeCapsShift.dist"
+          $exe = Get-ChildItem -LiteralPath $target -Filter "*.exe" |
+            Select-Object -First 1
+          if (-not $exe) {
+            throw "No executable found in $target"
+          }
+          Rename-Item -LiteralPath $exe.FullName -NewName "RimeCapsShift.exe"
+          Copy-Item -LiteralPath "README.md" -Destination (Join-Path $target "README.md")
+          $zip = "build\RimeCapsShift-windows-x64.zip"
+          Compress-Archive -Path (Join-Path $target "*") `
+            -DestinationPath $zip -CompressionLevel Optimal
+          $hash = (Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLower()
+          "$hash  RimeCapsShift-windows-x64.zip" |
+            Set-Content -LiteralPath "build\RimeCapsShift-windows-x64.zip.sha256" `
+              -Encoding ascii
 
       - name: Upload Windows artifact
         uses: actions/upload-artifact@v4
         with:
-          name: RimeCapsShift-windows-x64
+          name: RimeCapsShift-windows-x64-standalone
           path: |
-            build/RimeCapsShift.exe
-            build/RimeCapsShift.exe.sha256
+            build/RimeCapsShift-windows-x64.zip
+            build/RimeCapsShift-windows-x64.zip.sha256
           if-no-files-found: error
           retention-days: 30
 
@@ -70,12 +135,12 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           $tag = "${{ github.ref_name }}"
-          $exe = "build\RimeCapsShift.exe"
-          $sum = "build\RimeCapsShift.exe.sha256"
+          $zip = "build\RimeCapsShift-windows-x64.zip"
+          $sum = "build\RimeCapsShift-windows-x64.zip.sha256"
           gh release view $tag *> $null
           if ($LASTEXITCODE -eq 0) {
-            gh release upload $tag $exe $sum --clobber
+            gh release upload $tag $zip $sum --clobber
           } else {
-            gh release create $tag $exe $sum --verify-tag `
+            gh release create $tag $zip $sum --verify-tag `
               --title "RimeCapsShift $tag" --generate-notes
           }

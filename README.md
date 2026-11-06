@@ -2,7 +2,7 @@
 
 [![Build Windows executable](https://github.com/HuXiaoCAPS/rime-caps-shift/actions/workflows/build.yml/badge.svg)](https://github.com/HuXiaoCAPS/rime-caps-shift/actions/workflows/build.yml)
 
-版本：1.3.0
+版本：1.3.1
 
 在 Windows 上为 **小狼毫（Weasel / Rime）** 提供 CapsLock 兼容层：
 
@@ -282,39 +282,43 @@ python rime_caps_shift.py --quit
 - Python：`3.12` x64
 - 构建器：`Nuitka/Nuitka-Action@v1.5`
 - Nuitka：固定 `4.3.4`
-- 模式：`onefile`
+- 模式：`standalone`
+- 启动优化：`python-flag: no_site`
 - 控制台：`windows-console-mode: disable`（GUI 程序，无黑框）
 - 图标：`assets/rime_caps_shift.ico`
-- 产物：`RimeCapsShift.exe` + `RimeCapsShift.exe.sha256`
+- 排除：`nofollow-import-to` 列表（tkinter、unittest、ssl、http、xml、json、
+  sqlite3、multiprocessing、asyncio 等未使用模块）
+- 产物：`RimeCapsShift-windows-x64.zip` + `.sha256`
 
 触发方式：
 
 1. 手动：GitHub 仓库页面 → **Actions** → **Build Windows executable** →
    **Run workflow**。
 2. 自动：推送 `main` 分支或提交 Pull Request。
-3. 打 tag（如 `v1.3.0`）push 后也会构建。
+3. 打 tag（如 `v1.3.1`）push 后也会构建。
 
 构建完成后，在该次 workflow 的 **Artifacts** 中下载
-`RimeCapsShift-windows-x64`，解压即可得到 EXE 和校验文件。Artifact 默认保留
-30 天。
+`RimeCapsShift-windows-x64-standalone`，解压后运行 `RimeCapsShift.exe`。
+Standalone 目录里的 DLL 必须和 EXE 放在一起，不能只复制 EXE。Artifact 默认
+保留 30 天。
 
-校验下载的 EXE：
+校验下载的 zip：
 
 ```powershell
-Get-FileHash .\RimeCapsShift.exe -Algorithm SHA256
-# 与 RimeCapsShift.exe.sha256 中的值比较
+Get-FileHash .\RimeCapsShift-windows-x64.zip -Algorithm SHA256
+# 与 RimeCapsShift-windows-x64.zip.sha256 中的值比较
 ```
 
 推送 `v*` tag 时，workflow 还会自动创建对应的 **GitHub Release**，附带
-`RimeCapsShift.exe` 和 `RimeCapsShift.exe.sha256`：
+`RimeCapsShift-windows-x64.zip` 和 `.sha256`：
 
 ```powershell
-git tag v1.3.0
-git push origin v1.3.0
+git tag v1.3.1
+git push origin v1.3.1
 ```
 
 Release 页面：
-<https://github.com/HuXiaoCAPS/rime-caps-shift/releases/tag/v1.3.0>
+<https://github.com/HuXiaoCAPS/rime-caps-shift/releases/tag/v1.3.1>
 
 Nuitka-Action 本身不是编译器，它会在 GitHub 的 Windows runner 上安装指定
 版本的 Nuitka 并调用 MSVC 构建。`assume-yes-for-downloads: true` 允许 Nuitka
@@ -323,11 +327,14 @@ Nuitka-Action 本身不是编译器，它会在 GitHub 的 Windows runner 上安
 等价的本地核心命令大致是：
 
 ```powershell
-python -m nuitka --onefile --windows-console-mode=disable `
+python -m nuitka --standalone --python-flag=no_site `
+  --windows-console-mode=disable `
   --windows-icon-from-ico=assets\rime_caps_shift.ico `
-  --output-dir=build --output-filename=RimeCapsShift.exe `
-  rime_caps_shift.py
+  --output-dir=build rime_caps_shift.py
 ```
+
+> `--nofollow-import-to` 只能排除确定不会运行的模块；排错会导致 EXE 启动时
+> `ModuleNotFoundError`。完整列表见 workflow 文件。
 
 > 当前 workflow 在 `v*` tag 上自动创建/更新 GitHub Release；普通 `main` push
 > 和 Pull Request 只上传 Actions Artifact。
@@ -347,36 +354,74 @@ python -m nuitka --onefile --windows-console-mode=disable `
 如果使用 pixi 工程：
 
 ```powershell
-pixi run python -m nuitka --onefile --windows-console-mode=disable `
+pixi run python -m nuitka --standalone --python-flag=no_site `
+  --windows-console-mode=disable `
   --windows-icon-from-ico=assets\rime_caps_shift.ico `
   --assume-yes-for-downloads --output-dir=build `
-  --output-filename=RimeCapsShift.exe rime_caps_shift.py
+  rime_caps_shift.py
 ```
 
 如果用普通 Python 环境：
 
 ```powershell
 python -m pip install nuitka
-python -m nuitka --onefile --windows-console-mode=disable `
+python -m nuitka --standalone --python-flag=no_site `
+  --windows-console-mode=disable `
   --windows-icon-from-ico=assets\rime_caps_shift.ico `
   --assume-yes-for-downloads --output-dir=build `
-  --output-filename=RimeCapsShift.exe rime_caps_shift.py
+  rime_caps_shift.py
 ```
 
-生成文件通常位于 `build\RimeCapsShift.exe`。
+生成目录通常位于 `build\rime_caps_shift.dist`，主程序是其中的
+`rime_caps_shift.exe`。分发时必须带上整个目录，不能只复制 EXE。
 
 说明：
 
-- `--onefile` 单文件启动时会解压到临时目录，启动稍慢；如果更在意启动速度，
-  可改成 `--standalone`，分发整个 `build\RimeCapsShift.dist` 目录。
+- `standalone` 比 `onefile` 少一个引导进程，启动时不需要解压到临时目录；代价是
+  分发的是目录而不是单文件。
+- `--nofollow-import-to` 用于排除确定不会使用的标准库模块，减少产物体积和启动
+  加载；不要把 `ctypes`、`logging`、`argparse`、`subprocess`、`winreg` 等实际
+  使用的模块加进去。
 - Nuitka 首次编译需要 C 编译器。已安装 Visual Studio Build Tools 时 Nuitka
   会自动查找；否则可加 `--mingw64 --assume-yes-for-downloads` 让 Nuitka
   下载 MinGW64。MinGW64 下载体积较大（数百 MB），请按需使用。
 - 本项目不需要管理员权限，不需要添加 `--windows-uac-admin`。
 - `--windows-console-mode=disable` 构建下没有控制台；启动失败会弹出错误对话框。
   运行日志可通过 `--log-file` 指定。
-- 单文件 EXE 可能被杀毒软件误报，这是打包器的常见现象。可改用 `--standalone`
-  目录版本，或对生成的 EXE 做签名/加白名单。
+- Standalone EXE 或目录移动后，开机自启动的 Run 值需要重新开关一次以刷新路径。
+- 未签名的 EXE 可能触发 SmartScreen 或被杀毒软件提示，这是打包器的常见现象；
+  可对 EXE 做签名，或把目录加入白名单。
+
+## 内存占用说明
+
+先区分两件事：
+
+- **onefile** 运行时有两个进程：Nuitka 引导进程负责解压/启动，子进程才是 Python
+  程序。任务管理器里可能只看到一个，也可能看到两个。
+- **standalone** 只有一个进程，不需要每次启动解压到临时目录。它不会让 Python
+  解释器消失，但可以去掉引导进程的开销，并改善启动速度。
+
+`--nofollow-import-to` 主要减少分发体积和启动时需要扫描/加载的模块；对已经加载
+的 CPython 运行时、ctypes、GDI/USER32 这些内存没有决定性影响。不要期待从 13MB
+降到 3MB。
+
+本版已经做的低风险优化：
+
+- 改为 `standalone`，去掉 onefile 引导进程；
+- `python-flag: no_site`，不执行 `site.py`；
+- 删除未使用的 `typing` 导入（项目使用 `from __future__ import annotations`）；
+- `subprocess`、`base64`、`zlib` 改为按需导入；
+- `--nofollow-import-to` 排除 50 个未使用的标准库模块。
+
+想进一步显著降低内存，只剩这些方向：
+
+1. **不用 Python 重写**：C/C++/Rust/C# 原生实现可以轻松做到几 MB，但开发量和
+   维护成本高，当前项目不值得。
+2. **关闭光效**：`--no-halo` 只省很小的 GDI 位图内存，不是大头。
+3. **减少常驻 Python 模块**：例如去掉 `logging`/`argparse`，用极简实现替代；
+   能省一点，但会牺牲可维护性和日志能力。
+4. **接受现状**：13MB 级别的常驻内存对一个 Python + Win32 钩子程序并不夸张，
+   而且已经低于小狼毫服务本身。
 
 ## 已知限制与注意事项
 
