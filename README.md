@@ -24,7 +24,7 @@
 ## 文件
 
 - `rime_caps_shift.py`：完整程序。双色托盘图标的 32×32 RGBA 数据内嵌在源码中，
-  由 `D:\Backup\Downloads\rcs_icon.png` 生成，运行时不需要额外图标文件。
+  由项目图标源生成，运行时不需要额外图标文件。
 - `assets/rime_caps_shift.ico`：多尺寸 Windows 可执行文件图标。
 - `.github/workflows/build.yml`：GitHub Actions / Nuitka-Action 在线构建配置。
 - `README.md`：本说明。
