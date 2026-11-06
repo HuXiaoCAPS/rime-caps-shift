@@ -12,7 +12,6 @@
 package main
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"runtime"
@@ -297,10 +296,10 @@ func runDiagnose(cfg *Config) int {
 
 	// 图标：仅在启用托盘时生成，customIcons 才负责 Destroy。
 	var (
-		iconOff       windows.Handle
-		iconOn        windows.Handle
-		trayStatus    string
-		customIcons   bool
+		iconOff     windows.Handle
+		iconOn      windows.Handle
+		trayStatus  string
+		customIcons bool
 	)
 	if cfg.NoTray {
 		trayStatus = "未启用（--no-tray）"
@@ -402,7 +401,3 @@ func onOff(b bool) string {
 	}
 	return "关"
 }
-
-// 防御：确保本文件至少引用一个 main.go 里定义的符号，避免意外删空后
-// 编译错误定位到别的文件；实际运行时不会命中。
-var _ = errors.New

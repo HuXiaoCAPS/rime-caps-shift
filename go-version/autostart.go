@@ -70,7 +70,8 @@ func quoteWinArg(s string) string {
 		case '\\':
 			bslashes++
 		case '"':
-			b.WriteString(strings.Repeat(`\`, bslashes+1))
+			// 引号前的 N 个反斜杠要写成 2N+1 个，再跟一个引号。
+			b.WriteString(strings.Repeat(`\`, bslashes*2+1))
 			b.WriteByte('"')
 			bslashes = 0
 		default:
@@ -79,7 +80,8 @@ func quoteWinArg(s string) string {
 			bslashes = 0
 		}
 	}
-	b.WriteString(strings.Repeat(`\`, bslashes))
+	// 参数结尾的 N 个反斜杠要写成 2N 个，避免把结尾引号转义掉。
+	b.WriteString(strings.Repeat(`\`, bslashes*2))
 	b.WriteByte('"')
 	return b.String()
 }

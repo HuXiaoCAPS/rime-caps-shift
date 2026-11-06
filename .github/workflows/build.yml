@@ -5,8 +5,13 @@ on:
   push:
     branches: [main]
     tags: ["v*"]
+    paths-ignore:
+      - 'go-version/**'
+      - '.github/workflows/build-go.yml'
   pull_request:
-
+    paths-ignore:
+      - 'go-version/**'
+      - '.github/workflows/build-go.yml'
 permissions:
   contents: write
 

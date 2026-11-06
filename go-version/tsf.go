@@ -30,11 +30,11 @@ import (
 // ---------- 关键字匹配 ----------
 
 // rimeWordRe 匹配独立的 "rime" 词，避免把 "Prime"/"crime" 之类误判。
-// Go 的 regexp 不支持 lookbehind，所以用 `\b` 近似：在 ASCII 字母上，
-// \b 的边界语义正好匹配"前后不是 [a-z0-9_]"，而我们的关键字全是字母，
-// 用 \b 足够；数字/下划线跟在 rime 后面（如 "rime64"）也视为词边界，
-// 与 Python 版 `(?<![a-z])rime(?![a-z])` 在本场景完全等价。
-var rimeWordRe = regexp.MustCompile(`\brime\b`)
+// Go 的 regexp 不支持 lookbehind，用等价的前后非 [a-z] 分组近似：
+// Python 版是 `(?<![a-z])rime(?![a-z])`，所以 "rime64" / "_rime" 都能
+// 命中，而 "crime"/"rimer" 不能。不要用 \b：数字和下划线属于 \w，
+// 会漏掉 "rime64" 这类文件名。
+var rimeWordRe = regexp.MustCompile(`(^|[^a-z])rime([^a-z]|$)`)
 
 // textMatchesWeasel 不区分大小写匹配关键字。
 //   - "rime" 走词边界匹配；
@@ -83,7 +83,7 @@ func getHKLTexts(hkl uintptr) (string, string) {
 	)
 	var desc string
 	if r > 0 && int(r) <= len(descBuf) {
-		desc = windows.UTF16ToString(descBuf[:r])
+		desc = windows.UTF16ToString(descBuf[:int(r)])
 	}
 
 	r, _, _ = procImmGetIMEFileNameW.Call(
@@ -93,7 +93,7 @@ func getHKLTexts(hkl uintptr) (string, string) {
 	)
 	var file string
 	if r > 0 && int(r) <= len(fileBuf) {
-		file = windows.UTF16ToString(fileBuf[:r])
+		file = windows.UTF16ToString(fileBuf[:int(r)])
 	}
 	return desc, file
 }
@@ -294,9 +294,10 @@ func readRegString(root registry.Key, path, name string) string {
 // ---------- TSF 活动配置查询 ----------
 
 // ITfInputProcessorProfiles 只读 vtable。索引：
-//   0..2  IUnknown (QueryInterface/AddRef/Release)
-//   3..10 Register/Unregister/Add/Remove/EnumInputInfo/GetDefault/SetDefault/Activate
-//   11    GetActiveLanguageProfile
+//
+//	0..2  IUnknown (QueryInterface/AddRef/Release)
+//	3..10 Register/Unregister/Add/Remove/EnumInputInfo/GetDefault/SetDefault/Activate
+//	11    GetActiveLanguageProfile
 type tfInputProcessorProfiles struct {
 	vtbl *[12]uintptr
 }
@@ -359,7 +360,7 @@ func newTSFProfileQuery(candidates []GUID) *TSFProfileQuery {
 		return q
 	}
 
-	var out uintptr
+	var out unsafe.Pointer
 	hr, _, _ = procCoCreateInstance.Call(
 		ptrToUint(unsafe.Pointer(&clsid)),
 		0,
@@ -368,12 +369,12 @@ func newTSFProfileQuery(candidates []GUID) *TSFProfileQuery {
 		ptrToUint(unsafe.Pointer(&out)),
 	)
 	hr32 = int32(hr)
-	if hr32 != S_OK || out == 0 {
+	if hr32 != S_OK || out == nil {
 		q.lastError = fmt.Sprintf("CoCreateInstance HRESULT=%#x", uint32(hr32))
 		return q
 	}
 
-	q.ptr = (*tfInputProcessorProfiles)(unsafe.Pointer(out))
+	q.ptr = (*tfInputProcessorProfiles)(out)
 	q.available = true
 	return q
 }
@@ -411,15 +412,15 @@ func (q *TSFProfileQuery) close() {
 
 // ForegroundInfo 是 foregroundInfo() 的返回结果，供 --diagnose 打印。
 type ForegroundInfo struct {
-	HKL           uintptr
-	Description   string
-	IMEFile       string
-	LangID        uint16
-	IsChineseHKL  bool
-	HKLMatch      bool
-	TSFActive     bool
-	TSFAvailable  bool
-	TSFLastError  string
+	HKL          uintptr
+	Description  string
+	IMEFile      string
+	LangID       uint16
+	IsChineseHKL bool
+	HKLMatch     bool
+	TSFActive    bool
+	TSFAvailable bool
+	TSFLastError string
 }
 
 // WeaselDetector 组合 HKL 与 TSF 活动配置判定当前前台是否为小狼毫。

@@ -93,13 +93,13 @@ func newHaloOverlay(hinstance windows.Handle, enabled bool, color HaloColor, siz
 	if err := h.buildBitmap(); err != nil {
 		h.reason = fmt.Sprintf("初始化失败（%v）", err)
 		logWarn("光效初始化失败，降级为仅托盘变色：%s", h.reason)
-		h.releaseResources()
+		h.close()
 		return h
 	}
 	if err := h.createWindow(); err != nil {
 		h.reason = fmt.Sprintf("初始化失败（%v）", err)
 		logWarn("光效初始化失败，降级为仅托盘变色：%s", h.reason)
-		h.releaseResources()
+		h.close()
 		return h
 	}
 	h.available = true

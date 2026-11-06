@@ -8,7 +8,6 @@
 package main
 
 import (
-	"fmt"
 	"runtime"
 	"unsafe"
 
@@ -17,14 +16,14 @@ import (
 
 // TrayIcon 封装 Shell_NotifyIconW。
 type TrayIcon struct {
-	hwnd            windows.Handle
-	defaultIcon     windows.Handle
-	activeIcon      windows.Handle
-	colorAvailable  bool
-	active          bool
-	added           bool
-	lastTip         string
-	data            NOTIFYICONDATAW
+	hwnd           windows.Handle
+	defaultIcon    windows.Handle
+	activeIcon     windows.Handle
+	colorAvailable bool
+	active         bool
+	added          bool
+	lastTip        string
+	data           NOTIFYICONDATAW
 }
 
 func newTrayIcon(hwnd, defaultIcon, activeIcon windows.Handle, colorAvailable bool) *TrayIcon {
@@ -194,10 +193,14 @@ func (a *App) showTrayMenu() {
 	defer procDestroyMenu.Call(menu)
 
 	appendMenu := func(flags uintptr, id uintptr, text string) {
+		textPtr := utf16Ptr(text)
 		procAppendMenuW.Call(
 			menu, flags, id,
-			ptrToUint(unsafe.Pointer(utf16Ptr(text))),
+			ptrToUint(unsafe.Pointer(textPtr)),
 		)
+		// AppendMenuW 只读取字符串，但传进去的 uintptr 不会让 GC
+		// 保持 textPtr 背后的缓冲区存活，必须在调用后 KeepAlive。
+		runtime.KeepAlive(textPtr)
 	}
 
 	appendMenu(MF_STRING|MF_GRAYED, 0, a.state.statusMenu())
@@ -238,15 +241,17 @@ func (a *App) showTrayMenu() {
 func (a *App) toggleAutostart() {
 	enable := !isAutostartEnabled()
 	if !setAutostartEnabled(enable) {
+		msgPtr := utf16Ptr("无法更新开机自启动设置。\n" +
+			"请检查当前用户是否有写入 HKCU\\...\\Run 的权限。")
+		titlePtr := utf16Ptr(APP_NAME)
 		procMessageBoxW.Call(
 			uintptr(a.hwnd),
-			ptrToUint(unsafe.Pointer(utf16Ptr(
-				"无法更新开机自启动设置。\n"+
-					"请检查当前用户是否有写入 HKCU\\...\\Run 的权限。",
-			))),
-			ptrToUint(unsafe.Pointer(utf16Ptr(APP_NAME))),
+			ptrToUint(unsafe.Pointer(msgPtr)),
+			ptrToUint(unsafe.Pointer(titlePtr)),
 			MB_ICONERROR,
 		)
+		runtime.KeepAlive(msgPtr)
+		runtime.KeepAlive(titlePtr)
 		return
 	}
 	state := "关闭"
@@ -255,7 +260,3 @@ func (a *App) toggleAutostart() {
 	}
 	logInfo("开机自启动已%s", state)
 }
-
-// 供 main.go 保证 Windows.Handle 类型统一；防止当前文件未使用 import。
-var _ = runtime.GOOS
-var _ = fmt.Sprintf

@@ -1,6 +1,7 @@
 name: Build Go Windows EXE
 
 on:
+  workflow_dispatch:
   push:
     branches: [ main, master ]
     paths:
@@ -10,6 +11,7 @@ on:
     branches: [ main, master ]
     paths:
       - 'go-version/**'
+      - '.github/workflows/build-go.yml'
 
 jobs:
   build-go:
@@ -26,12 +28,13 @@ jobs:
         with:
           go-version: '1.21'
           cache: true
-          cache-dependency-path: go-version/go.sum # 指向子目录的 go.sum[reference:3]
+          # 用已提交的 go.mod 作为缓存键；go.sum 由 go mod tidy 生成/校验。
+          cache-dependency-path: go-version/go.mod
 
       - name: Build
         run: |
           go mod tidy
-          go build -ldflags="-s -w -H windowsgui" -o rimecaps.exe .
+          go build -ldflags="-s -w -H windowsgui" -o RimeCapsShift-Go.exe .
         env:
           CGO_ENABLED: 0
 
@@ -40,3 +43,5 @@ jobs:
         with:
           name: RimeCapsShift-Go-windows-exe
           path: go-version/RimeCapsShift-Go.exe
+          if-no-files-found: error
+          retention-days: 30

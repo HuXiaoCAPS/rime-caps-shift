@@ -137,15 +137,15 @@ func (v *VisualState) shutdown() {
 
 // App 汇总所有子系统引用和 Win32 资源句柄。
 // 各方法分散在同包不同文件里，方便按职责阅读：
-//   * window/timer/message loop: main.go
-//   * 键盘钩子、SendInput:      hook.go
-//   * 状态机:                    state.go
-//   * TSF/HKL 检测:              tsf.go
-//   * 光效:                      halo.go
-//   * 托盘 & 菜单:               tray.go
-//   * 图标生成:                  icons.go
-//   * 开机自启:                  autostart.go
-//   * 命令行 & 诊断:             cmd.go
+//   - window/timer/message loop: main.go
+//   - 键盘钩子、SendInput:      hook.go
+//   - 状态机:                    state.go
+//   - TSF/HKL 检测:              tsf.go
+//   - 光效:                      halo.go
+//   - 托盘 & 菜单:               tray.go
+//   - 图标生成:                  icons.go
+//   - 开机自启:                  autostart.go
+//   - 命令行 & 诊断:             cmd.go
 type App struct {
 	// 配置
 	cfg *Config
@@ -216,12 +216,16 @@ func main() {
 		msg := "RimeCapsShift 启动失败：" + err.Error()
 		logError("%s", msg)
 		// 无控制台构建时也能看到错误
+		msgPtr := utf16Ptr(msg)
+		titlePtr := utf16Ptr(APP_NAME)
 		procMessageBoxW.Call(
 			0,
-			ptrToUint(unsafe.Pointer(utf16Ptr(msg))),
-			ptrToUint(unsafe.Pointer(utf16Ptr(APP_NAME))),
+			ptrToUint(unsafe.Pointer(msgPtr)),
+			ptrToUint(unsafe.Pointer(titlePtr)),
 			MB_ICONERROR,
 		)
+		runtime.KeepAlive(msgPtr)
+		runtime.KeepAlive(titlePtr)
 		os.Exit(1)
 	}
 }
@@ -261,7 +265,7 @@ func newApp(cfg *Config) *App {
 		hinstance:       mustModuleHandle(),
 		trayColorReason: "未初始化",
 	}
-	a.detector = newWeaselDetector(cfg.UseTSF)
+	a.detector = newWeaselDetector(!cfg.NoTSF)
 	a.injector = newShiftInjector()
 	a.state = newKeyboardHandler(
 		a.detector, a.injector,
@@ -385,10 +389,9 @@ func (a *App) startTimers() error {
 		)
 		if r == 0 {
 			logWarn("SetTimer(halo) 失败，光效将降级为禁用：%v", errno)
-			a.halo.available = false
 			a.halo.reason = "动画计时器创建失败"
-			a.halo.setVisible(false)
 			a.visual.halo = nil
+			a.halo.close()
 			a.halo = nil
 			return nil
 		}
@@ -446,10 +449,10 @@ func wndProc(hwnd, msg, wparam, lparam uintptr) uintptr {
 		if app.menuOpen || app.quitting {
 			return 0
 		}
-		switch wparam {
-		case TIMER_ID_POLL:
+		switch {
+		case app.timerID != 0 && wparam == app.timerID:
 			app.onPollTimer()
-		case TIMER_ID_HALO:
+		case app.haloTimerID != 0 && wparam == app.haloTimerID:
 			app.onHaloTimer()
 		}
 		return 0
@@ -636,9 +639,13 @@ func (a *App) createTray() {
 // enableDPIAwareness 依次尝试 Per-Monitor V2 → V1 → System。
 // 只要有一个成功即可；全部失败只警告。
 func enableDPIAwareness() bool {
-	if ok, _, _ := procSetProcessDpiAwarenessContext.Call(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2); ok != 0 {
-		logDebug("DPI 感知：Per-Monitor V2")
-		return true
+	// SetProcessDpiAwarenessContext 只在 Windows 10 1703+ 存在；
+	// LazyProc.Call 在过程不存在时会 panic，所以先用 Find 探测。
+	if procSetProcessDpiAwarenessContext.Find() == nil {
+		if ok, _, _ := procSetProcessDpiAwarenessContext.Call(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2); ok != 0 {
+			logDebug("DPI 感知：Per-Monitor V2")
+			return true
+		}
 	}
 
 	// shcore.dll 在 Win7 上不存在；用 Find 探测，不存在就跳过。
@@ -651,9 +658,11 @@ func enableDPIAwareness() bool {
 		}
 	}
 
-	if ok, _, _ := procSetProcessDPIAware.Call(); ok != 0 {
-		logDebug("DPI 感知：System DPI aware")
-		return true
+	if procSetProcessDPIAware.Find() == nil {
+		if ok, _, _ := procSetProcessDPIAware.Call(); ok != 0 {
+			logDebug("DPI 感知：System DPI aware")
+			return true
+		}
 	}
 
 	logWarn("无法启用 DPI 感知，混合 DPI 显示器下光效位置可能不准确")

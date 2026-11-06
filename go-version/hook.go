@@ -97,17 +97,20 @@ func (s *ShiftInjector) releaseBestEffort() { s.release() }
 // lowLevelKeyboardProc 是 WH_KEYBOARD_LL 的回调。在安装钩子的线程
 // （即主线程，被 LockOSThread 锁定）上被调用。
 //
-// 注意：低级钩子默认 300ms 超时；超时 Windows 会静默丢弃这个钩子。
+// 注意：Windows 以机器字宽传递回调参数；nCode 用 uintptr 接收后转 int32，
+// lParam 用 unsafe.Pointer 接收，保持指针语义并避免 uintptr->Pointer 转换。
+//
+// 另外，低级钩子默认 300ms 超时；超时 Windows 会静默丢弃这个钩子。
 // 所以这里只做内存判断，所有副作用都交给 WM_TIMER 处理。
-func lowLevelKeyboardProc(nCode int32, wParam, lParam uintptr) uintptr {
+func lowLevelKeyboardProc(nCode uintptr, wParam uintptr, lParam unsafe.Pointer) uintptr {
 	defer func() {
 		if r := recover(); r != nil && app != nil {
 			app.hookErr = fmt.Errorf("hook panic: %v", r)
 		}
 	}()
 
-	if nCode == HC_ACTION && app != nil && app.state != nil {
-		kb := (*KBDLLHOOKSTRUCT)(unsafe.Pointer(lParam))
+	if int32(nCode) == HC_ACTION && app != nil && app.state != nil {
+		kb := (*KBDLLHOOKSTRUCT)(lParam)
 		if kb.Flags&LLKHF_INJECTED == 0 {
 			down := wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN
 			up := wParam == WM_KEYUP || wParam == WM_SYSKEYUP
@@ -121,7 +124,7 @@ func lowLevelKeyboardProc(nCode int32, wParam, lParam uintptr) uintptr {
 	if app != nil {
 		hook = uintptr(app.hook)
 	}
-	r, _, _ := procCallNextHookEx.Call(hook, uintptr(nCode), wParam, lParam)
+	r, _, _ := procCallNextHookEx.Call(hook, nCode, wParam, uintptr(lParam))
 	return r
 }
 

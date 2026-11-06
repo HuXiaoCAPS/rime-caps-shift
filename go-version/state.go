@@ -96,9 +96,9 @@ func (h *KeyboardHandler) setVisual(v *VisualState) { h.visual = v }
 
 // ---------- 只读访问器（供 main.go / tray.go） ----------
 
-func (h *KeyboardHandler) isChinese() bool             { return h.chinese }
-func (h *KeyboardHandler) isWeaselForeground() bool    { return h.weaselForeground }
-func (h *KeyboardHandler) isShiftLatched() bool        { return h.shiftLatched }
+func (h *KeyboardHandler) isChinese() bool          { return h.chinese }
+func (h *KeyboardHandler) isWeaselForeground() bool { return h.weaselForeground }
+func (h *KeyboardHandler) isShiftLatched() bool     { return h.shiftLatched }
 
 // ---------- 初始化 / 轮询 ----------
 

@@ -6,6 +6,7 @@
 package main
 
 import (
+	"encoding/hex"
 	"fmt"
 	"strings"
 	"unsafe"
@@ -17,7 +18,7 @@ import (
 
 const (
 	APP_NAME    = "RimeCapsShift"
-	APP_VERSION = "1.3.1"
+	APP_VERSION = "1.3.2"
 )
 
 const (
@@ -178,12 +179,26 @@ func (g GUID) String() string {
 		g.Data4[4], g.Data4[5], g.Data4[6], g.Data4[7])
 }
 
+// guidFromString 解析带不带花括号、带不带连字符的 GUID 字符串。
+// 这里自己解析，不依赖 windows.GUIDFromString：后者对输入格式的要求
+// 随 x/sys 版本变化（部分版本要求 38 字符且必须带花括号），而注册表、
+// 常量里两种写法都会出现。字段按 GUID 的字符串语义写入，Data1/2/3 是
+// 大端数字，Data4 原样保存。
 func guidFromString(s string) (GUID, error) {
-	wg, err := windows.GUIDFromString(strings.Trim(s, "{}"))
-	if err != nil {
-		return GUID{}, err
+	text := strings.NewReplacer("{", "", "}", "", "-", "").Replace(strings.TrimSpace(s))
+	if len(text) != 32 {
+		return GUID{}, fmt.Errorf("无效的 GUID：%q", s)
 	}
-	return GUID{wg.Data1, wg.Data2, wg.Data3, wg.Data4}, nil
+	raw, err := hex.DecodeString(text)
+	if err != nil {
+		return GUID{}, fmt.Errorf("无效的 GUID：%q", s)
+	}
+	return GUID{
+		Data1: uint32(raw[0])<<24 | uint32(raw[1])<<16 | uint32(raw[2])<<8 | uint32(raw[3]),
+		Data2: uint16(raw[4])<<8 | uint16(raw[5]),
+		Data3: uint16(raw[6])<<8 | uint16(raw[7]),
+		Data4: [8]byte{raw[8], raw[9], raw[10], raw[11], raw[12], raw[13], raw[14], raw[15]},
+	}, nil
 }
 
 // 显示与 DPI 辅助结构体
@@ -228,6 +243,7 @@ type HARDWAREINPUT struct {
 // 末尾的 [8]byte 把 union 补齐：
 //   - amd64: KEYBDINPUT 24 字节 + 8 padding = 32，整体 4 + 4(pad) + 32 = 40
 //   - 386:   KEYBDINPUT 16 字节 + 8 padding = 24，整体 4 + 24 = 28
+//
 // 启动时由 initInputLayoutCheck() 校验。
 type INPUT struct {
 	Type uint32
