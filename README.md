@@ -415,17 +415,19 @@ python -m nuitka --standalone --python-flag=no_site `
 - `base64`、`zlib` 改为按需导入；
 - `--nofollow-import-to` 排除 50 个未使用的标准库模块。
 
-本机 Windows 11 x64 实测（v1.3.1 standalone，默认托盘 + 光效）：
+本机 Windows 11 x64 实测（v1.3.2 standalone，默认托盘 + 光效）：
 
 | 构建 | 进程 | Working Set | Private |
 | --- | --- | ---: | ---: |
-| onefile | 引导进程 | 15.6 MB | 1.9 MB |
-| onefile | Python 子进程 | 36.2 MB | 149.2 MB |
-| standalone | 单进程 | 29.4 MB | 13.9 MB |
+| onefile | 引导进程 | 15.6 MB | 2.0 MB |
+| onefile | Python 子进程 | 36.0 MB | 149.0 MB |
+| standalone | 单进程 | 28.7 MB | 12.8 MB |
 
 任务管理器不同列的口径差别很大；你看到的 13MB 很可能对应 Private 而不是
 Working Set。standalone 的主要收益是**去掉引导进程**、不再每次解压，以及更快的
-冷启动；Private 内存本身不会因为换模式而变成个位数。
+冷启动；Private 内存本身不会因为换模式而变成个位数。v1.3.2 相比 v1.3.1 又去掉了
+`uuid`/`subprocess` 带进来的 `libcrypto-3.dll` 等文件，发布 zip 从 7.5MB 降到
+5.3MB。
 
 想进一步显著降低内存，只剩这些方向：
 
