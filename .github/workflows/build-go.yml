@@ -1,0 +1,42 @@
+name: Build Go Windows EXE
+
+on:
+  push:
+    branches: [ main, master ]
+    paths:
+      - 'go-version/**'                # 仅当 go-version 目录下文件变动时触发
+      - '.github/workflows/build-go.yml' # 或工作流文件自身变动时
+  pull_request:
+    branches: [ main, master ]
+    paths:
+      - 'go-version/**'
+
+jobs:
+  build-go:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: ./go-version  # 所有后续 run 命令都在此目录执行
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+          cache: true
+          cache-dependency-path: go-version/go.sum # 指向子目录的 go.sum[reference:3]
+
+      - name: Build
+        run: |
+          go mod tidy
+          go build -ldflags="-s -w -H windowsgui" -o rimecaps.exe .
+        env:
+          CGO_ENABLED: 0
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: RimeCapsShift-Go-windows-exe
+          path: go-version/RimeCapsShift-Go.exe
