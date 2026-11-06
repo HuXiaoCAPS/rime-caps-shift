@@ -2,7 +2,7 @@
 
 [![Build Windows executable](https://github.com/HuXiaoCAPS/rime-caps-shift/actions/workflows/build.yml/badge.svg)](https://github.com/HuXiaoCAPS/rime-caps-shift/actions/workflows/build.yml)
 
-版本：1.3.1
+版本：1.3.2
 
 在 Windows 上为 **小狼毫（Weasel / Rime）** 提供 CapsLock 兼容层：
 
@@ -295,7 +295,7 @@ python rime_caps_shift.py --quit
 1. 手动：GitHub 仓库页面 → **Actions** → **Build Windows executable** →
    **Run workflow**。
 2. 自动：推送 `main` 分支或提交 Pull Request。
-3. 打 tag（如 `v1.3.1`）push 后也会构建。
+3. 打 tag（如 `v1.3.2`）push 后也会构建。
 
 构建完成后，在该次 workflow 的 **Artifacts** 中下载
 `RimeCapsShift-windows-x64-standalone`，解压后运行 `RimeCapsShift.exe`。
@@ -313,12 +313,12 @@ Get-FileHash .\RimeCapsShift-windows-x64.zip -Algorithm SHA256
 `RimeCapsShift-windows-x64.zip` 和 `.sha256`：
 
 ```powershell
-git tag v1.3.1
-git push origin v1.3.1
+git tag v1.3.2
+git push origin v1.3.2
 ```
 
 Release 页面：
-<https://github.com/HuXiaoCAPS/rime-caps-shift/releases/tag/v1.3.1>
+<https://github.com/HuXiaoCAPS/rime-caps-shift/releases/tag/v1.3.2>
 
 Nuitka-Action 本身不是编译器，它会在 GitHub 的 Windows runner 上安装指定
 版本的 Nuitka 并调用 MSVC 构建。`assume-yes-for-downloads: true` 允许 Nuitka
@@ -410,8 +410,22 @@ python -m nuitka --standalone --python-flag=no_site `
 - 改为 `standalone`，去掉 onefile 引导进程；
 - `python-flag: no_site`，不执行 `site.py`；
 - 删除未使用的 `typing` 导入（项目使用 `from __future__ import annotations`）；
-- `subprocess`、`base64`、`zlib` 改为按需导入；
+- 用本地 GUID 解析和命令行引用函数替代 `uuid`、`subprocess`，避免带进
+  `_uuid.pyd`、`libcrypto-3.dll` 等无关文件；
+- `base64`、`zlib` 改为按需导入；
 - `--nofollow-import-to` 排除 50 个未使用的标准库模块。
+
+本机 Windows 11 x64 实测（v1.3.1 standalone，默认托盘 + 光效）：
+
+| 构建 | 进程 | Working Set | Private |
+| --- | --- | ---: | ---: |
+| onefile | 引导进程 | 15.6 MB | 1.9 MB |
+| onefile | Python 子进程 | 36.2 MB | 149.2 MB |
+| standalone | 单进程 | 29.4 MB | 13.9 MB |
+
+任务管理器不同列的口径差别很大；你看到的 13MB 很可能对应 Private 而不是
+Working Set。standalone 的主要收益是**去掉引导进程**、不再每次解压，以及更快的
+冷启动；Private 内存本身不会因为换模式而变成个位数。
 
 想进一步显著降低内存，只剩这些方向：
 

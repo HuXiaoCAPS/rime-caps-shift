@@ -44,12 +44,11 @@ import os
 import re
 import sys
 import time
-import uuid
 import winreg
 from ctypes import wintypes
 
 APP_NAME = "RimeCapsShift"
-APP_VERSION = "1.3.1"
+APP_VERSION = "1.3.2"
 WINDOW_CLASS = "RimeCapsShift.HiddenWindow"
 MUTEX_NAME = r"Local\RimeCapsShift.SingleInstance"
 TRAY_UID = 1
@@ -186,6 +185,14 @@ def _print(message: str = "", file=None) -> None:
 # Win32 结构体
 # ---------------------------------------------------------------------------
 
+def _guid_bytes_le(value: str) -> bytes:
+    text = value.strip().replace("{", "").replace("}", "").replace("-", "")
+    if len(text) != 32:
+        raise ValueError(f"无效的 GUID：{value!r}")
+    raw = bytes.fromhex(text)
+    return raw[0:4][::-1] + raw[4:6][::-1] + raw[6:8][::-1] + raw[8:16]
+
+
 class GUID(ctypes.Structure):
     _fields_ = [
         ("Data1", wintypes.DWORD),
@@ -197,7 +204,7 @@ class GUID(ctypes.Structure):
     @classmethod
     def from_string(cls, value: str) -> "GUID":
         g = cls()
-        ctypes.memmove(ctypes.byref(g), uuid.UUID(value).bytes_le, 16)
+        ctypes.memmove(ctypes.byref(g), _guid_bytes_le(value), 16)
         return g
 
     def is_null(self) -> bool:
@@ -1809,9 +1816,31 @@ def _autostart_args() -> list[str]:
     return result
 
 
-def _autostart_command() -> str:
-    import subprocess
+def _quote_windows_arg(arg: str) -> str:
+    """等价于 subprocess.list2cmdline 的单参数引用，避免常驻 subprocess。"""
+    if not arg:
+        return '""'
+    if not any(ch in arg for ch in ' \t"'):
+        return arg
+    out = ['"']
+    backslashes = 0
+    for ch in arg:
+        if ch == "\\":
+            backslashes += 1
+        elif ch == '"':
+            out.append("\\" * (backslashes * 2 + 1))
+            out.append('"')
+            backslashes = 0
+        else:
+            out.append("\\" * backslashes)
+            out.append(ch)
+            backslashes = 0
+    out.append("\\" * (backslashes * 2))
+    out.append('"')
+    return "".join(out)
 
+
+def _autostart_command() -> str:
     if _is_compiled_binary():
         executable = os.path.abspath(sys.argv[0]) if sys.argv else ""
         if not executable or not os.path.isfile(executable):
@@ -1824,7 +1853,7 @@ def _autostart_command() -> str:
         if os.path.isfile(pythonw):
             executable = pythonw
         parts = [executable, script]
-    return subprocess.list2cmdline(parts + _autostart_args())
+    return " ".join(_quote_windows_arg(part) for part in parts + _autostart_args())
 
 
 def read_autostart_command() -> str:
