@@ -1,0 +1,64 @@
+name: Build Windows executable
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Nuitka onefile (Windows x64)
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.12 x64
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          architecture: "x64"
+
+      - name: Build with Nuitka
+        uses: Nuitka/Nuitka-Action@v1.5
+        with:
+          # Pin both the action and compiler for reproducible builds.
+          nuitka-version: "4.3.4"
+          script-name: rime_caps_shift.py
+          mode: onefile
+          windows-console-mode: disable
+          output-dir: build
+          output-file: RimeCapsShift.exe
+          windows-icon-from-ico: assets/rime_caps_shift.ico
+          assume-yes-for-downloads: true
+
+      - name: Generate SHA-256 checksum
+        shell: pwsh
+        run: |
+          $exe = "build\RimeCapsShift.exe"
+          if (-not (Test-Path -LiteralPath $exe)) {
+            throw "Expected build output was not created: $exe"
+          }
+          $hash = (Get-FileHash -LiteralPath $exe -Algorithm SHA256).Hash.ToLower()
+          "$hash  RimeCapsShift.exe" |
+            Set-Content -LiteralPath "build\RimeCapsShift.exe.sha256" -Encoding ascii
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: RimeCapsShift-windows-x64
+          path: |
+            build/RimeCapsShift.exe
+            build/RimeCapsShift.exe.sha256
+          if-no-files-found: error
+          retention-days: 30
