@@ -1,5 +1,3 @@
-整理版如下：
-
 # RimeCapsShift
 
 本程序在输入法为小狼毫 0.17.4 且处于中文模式时，将 CapsLock 的按下事件转为按住左 Shift：第一次按锁住左 Shift，第二次按松开左 Shift。  
