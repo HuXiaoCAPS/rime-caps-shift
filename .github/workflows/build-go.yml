@@ -41,7 +41,7 @@ jobs:
         run: |
           go run github.com/akavel/rsrc@v0.10.2 -arch amd64 -ico ..\assets\rime_caps_shift.ico -o rsrc_windows_amd64.syso
           go mod tidy
-          go build -ldflags="-s -w -H windowsgui" -o RimeCapsShift-Go.exe .
+          go build -ldflags="-s -w -H windowsgui" -o RimeCapsShift.exe .
         env:
           CGO_ENABLED: 0
 
@@ -60,7 +60,7 @@ jobs:
           $tag = "${{ github.ref_name }}"
           $version = $tag -replace '^go-', ''
           $asset = "RimeCapsShift-Go-$version-windows-x64.exe"
-          Copy-Item RimeCapsShift-Go.exe $asset
+          Copy-Item RimeCapsShift.exe $asset
           $hash = (Get-FileHash -LiteralPath $asset -Algorithm SHA256).Hash.ToLower()
           "$hash  $asset" | Set-Content "$asset.sha256" -Encoding ascii
           "TAG=$tag" | Out-File -FilePath $env:GITHUB_ENV -Append
