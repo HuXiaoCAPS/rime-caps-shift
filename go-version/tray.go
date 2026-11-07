@@ -205,14 +205,20 @@ func (a *App) showTrayMenu() {
 
 	appendMenu(MF_STRING|MF_GRAYED, 0, a.state.statusMenu())
 
+	pauseLabel := "暂停"
+	if a.state.isPaused() {
+		pauseLabel = "恢复"
+	}
+	appendMenu(MF_STRING, ID_TRAY_PAUSE, pauseLabel)
+
 	autostartFlags := uintptr(MF_STRING)
 	if isAutostartEnabled() {
 		autostartFlags |= MF_CHECKED
 	}
-	appendMenu(autostartFlags, ID_TRAY_AUTOSTART, "开机自启动")
-	appendMenu(MF_STRING, ID_TRAY_HIDE, "隐藏托盘图标")
+	appendMenu(autostartFlags, ID_TRAY_AUTOSTART, "开机启动")
+	appendMenu(MF_STRING, ID_TRAY_HIDE, "隐藏托盘")
 	appendMenu(MF_SEPARATOR, 0, "")
-	appendMenu(MF_STRING, ID_TRAY_EXIT, "退出 RimeCapsShift")
+	appendMenu(MF_STRING, ID_TRAY_EXIT, "退出")
 
 	var pt POINT
 	procGetCursorPos.Call(ptrToUint(unsafe.Pointer(&pt)))
@@ -228,6 +234,8 @@ func (a *App) showTrayMenu() {
 	procPostMessageW.Call(uintptr(a.hwnd), WM_NULL, 0, 0)
 
 	switch cmd {
+	case ID_TRAY_PAUSE:
+		a.togglePause()
 	case ID_TRAY_AUTOSTART:
 		a.toggleAutostart()
 	case ID_TRAY_HIDE:
@@ -235,6 +243,13 @@ func (a *App) showTrayMenu() {
 	case ID_TRAY_EXIT:
 		a.quit()
 	}
+}
+
+// togglePause 暂停/恢复键盘拦截；暂停时 CapsLock 和 Shift 完全交还系统。
+func (a *App) togglePause() {
+	a.state.setPaused(!a.state.isPaused())
+	a.state.flushPendingUI()
+	a.visual.sync()
 }
 
 // toggleAutostart 切换开机自启动并提示用户。

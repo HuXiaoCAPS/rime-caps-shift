@@ -50,6 +50,7 @@ type KeyboardHandler struct {
 	capsIntercepted  bool
 	spaceDown        bool
 	shiftLatched     bool
+	paused           bool
 
 	// 物理 Shift 状态：钩子无条件追踪，与 shiftKey 是否监听无关。
 	userLShiftDown bool
@@ -99,6 +100,7 @@ func (h *KeyboardHandler) setVisual(v *VisualState) { h.visual = v }
 func (h *KeyboardHandler) isChinese() bool          { return h.chinese }
 func (h *KeyboardHandler) isWeaselForeground() bool { return h.weaselForeground }
 func (h *KeyboardHandler) isShiftLatched() bool     { return h.shiftLatched }
+func (h *KeyboardHandler) isPaused() bool           { return h.paused }
 
 // ---------- 初始化 / 轮询 ----------
 
@@ -352,6 +354,11 @@ func (h *KeyboardHandler) handleCaps(isDown bool) bool {
 
 // HandleKey 处理一个物理按键；返回 true 时钩子吞掉该事件。
 func (h *KeyboardHandler) HandleKey(vkCode uint32, isDown bool) bool {
+	// 暂停时完全放行，CapsLock / Shift / Ctrl+Space 都交还给系统和输入法。
+	if h.paused {
+		return false
+	}
+
 	// 无条件追踪物理左右 Shift 状态，供 Ctrl+Space 组合键判定使用。
 	// 必须发生在任何吞键/翻转逻辑之前，且不依赖 --shift-key。
 	switch vkCode {
@@ -384,9 +391,35 @@ func (h *KeyboardHandler) HandleKey(vkCode uint32, isDown bool) bool {
 	return false
 }
 
+// setPaused 暂停/恢复 CapsLock、Shift、Ctrl+Space 的拦截与翻转。
+// 暂停时释放已锁存的 Shift，恢复时重新采样物理按键和前台输入法。
+func (h *KeyboardHandler) setPaused(paused bool) {
+	if paused == h.paused {
+		return
+	}
+	h.paused = paused
+	h.resetShiftCycle()
+	h.capsDown = false
+	h.capsIntercepted = false
+	h.spaceDown = false
+
+	if paused {
+		h.releaseLatchedShift("暂停")
+		h.visualDirty = true
+		h.queueLog(logLevelInfo, "已暂停：CapsLock/Shift 交还系统")
+		return
+	}
+
+	h.userLShiftDown = getAsyncDown(VK_LSHIFT)
+	h.userRShiftDown = getAsyncDown(VK_RSHIFT)
+	h.weaselForeground = h.detector.isWeaselForeground()
+	h.flipChinese("恢复", boolPtr(h.weaselForeground))
+}
+
 // ---------- 退出 / 保护 ----------
 
 func (h *KeyboardHandler) shutdown() {
+	h.paused = false
 	h.capsDown = false
 	h.capsIntercepted = false
 	h.spaceDown = false
@@ -429,6 +462,9 @@ func (h *KeyboardHandler) syncVisual() {
 // ---------- 状态文本 ----------
 
 func (h *KeyboardHandler) statusShort() string {
+	if h.paused {
+		return "已暂停"
+	}
 	if !h.weaselForeground {
 		return "非小狼毫，CapsLock 正常"
 	}
@@ -442,15 +478,17 @@ func (h *KeyboardHandler) statusShort() string {
 }
 
 func (h *KeyboardHandler) statusMenu() string {
+	if h.paused {
+		return "已暂停"
+	}
 	if !h.weaselForeground {
-		return "当前：非小狼毫 · CapsLock 保持原样"
+		return "非小狼毫"
 	}
 	if h.chinese {
-		latch := "Shift 未锁定"
 		if h.shiftLatched {
-			latch = "Shift 已锁定"
+			return "中文·已锁定"
 		}
-		return "当前：小狼毫 · 中文模式（" + latch + "）"
+		return "中文·未锁定"
 	}
-	return "当前：小狼毫 · 英文模式（CapsLock 保持原样）"
+	return "英文"
 }

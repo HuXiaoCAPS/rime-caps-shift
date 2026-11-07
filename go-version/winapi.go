@@ -34,6 +34,7 @@ const (
 	ID_TRAY_EXIT      = 1001
 	ID_TRAY_AUTOSTART = 1002
 	ID_TRAY_HIDE      = 1003
+	ID_TRAY_PAUSE     = 1004
 
 	AUTOSTART_KEY   = `Software\Microsoft\Windows\CurrentVersion\Run`
 	AUTOSTART_VALUE = "RimeCapsShift"

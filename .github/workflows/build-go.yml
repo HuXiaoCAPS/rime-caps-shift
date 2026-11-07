@@ -4,21 +4,27 @@ on:
   workflow_dispatch:
   push:
     branches: [ main, master ]
+    tags: [ 'go-v*' ]
     paths:
-      - 'go-version/**'                # 仅当 go-version 目录下文件变动时触发
-      - '.github/workflows/build-go.yml' # 或工作流文件自身变动时
+      - 'go-version/**'
+      - '.github/workflows/build-go.yml'
+      - 'assets/rime_caps_shift.ico'
   pull_request:
     branches: [ main, master ]
     paths:
       - 'go-version/**'
       - '.github/workflows/build-go.yml'
+      - 'assets/rime_caps_shift.ico'
+
+permissions:
+  contents: write
 
 jobs:
   build-go:
     runs-on: windows-latest
     defaults:
       run:
-        working-directory: ./go-version  # 所有后续 run 命令都在此目录执行
+        working-directory: ./go-version
 
     steps:
       - uses: actions/checkout@v4
@@ -28,11 +34,12 @@ jobs:
         with:
           go-version: '1.21'
           cache: true
-          # 用已提交的 go.mod 作为缓存键；go.sum 由 go mod tidy 生成/校验。
           cache-dependency-path: go-version/go.mod
 
       - name: Build
+        shell: pwsh
         run: |
+          go run github.com/akavel/rsrc@v0.10.2 -arch amd64 -ico ..\assets\rime_caps_shift.ico -o rsrc_windows_amd64.syso
           go mod tidy
           go build -ldflags="-s -w -H windowsgui" -o RimeCapsShift-Go.exe .
         env:
@@ -41,7 +48,45 @@ jobs:
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: RimeCapsShift-Go-windows-exe
-          path: go-version/RimeCapsShift-Go.exe
+          name: RimeCapsShift-exe
+          path: go-version/RimeCapsShift.exe
           if-no-files-found: error
           retention-days: 30
+
+      - name: Package for release
+        if: startsWith(github.ref, 'refs/tags/go-v')
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $version = $tag -replace '^go-', ''
+          $asset = "RimeCapsShift-Go-$version-windows-x64.exe"
+          Copy-Item RimeCapsShift-Go.exe $asset
+          $hash = (Get-FileHash -LiteralPath $asset -Algorithm SHA256).Hash.ToLower()
+          "$hash  $asset" | Set-Content "$asset.sha256" -Encoding ascii
+          "TAG=$tag" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "ASSET=$asset" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Upload release artifact
+        if: startsWith(github.ref, 'refs/tags/go-v')
+        uses: actions/upload-artifact@v4
+        with:
+          name: rimecaps-go-release
+          path: |
+            go-version/${{ env.ASSET }}
+            go-version/${{ env.ASSET }}.sha256
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/go-v')
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release view $env:TAG *> $null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload $env:TAG $env:ASSET "$env:ASSET.sha256" --clobber
+          } else {
+            gh release create $env:TAG $env:ASSET "$env:ASSET.sha256" `
+              --title "RimeCapsShift Go $env:TAG" --generate-notes
+          }

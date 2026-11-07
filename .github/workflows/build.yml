@@ -5,13 +5,13 @@ on:
   push:
     branches: [main]
     tags: ["v*"]
-    paths-ignore:
-      - 'go-version/**'
-      - '.github/workflows/build-go.yml'
+    paths:
+      - 'rime_caps_shift.py'
+      - 'assets/**'
   pull_request:
-    paths-ignore:
-      - 'go-version/**'
-      - '.github/workflows/build-go.yml'
+    paths:
+      - 'rime_caps_shift.py'
+      - 'assets/**'
 permissions:
   contents: write
 
